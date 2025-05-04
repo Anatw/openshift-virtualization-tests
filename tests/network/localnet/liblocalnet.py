@@ -1,12 +1,57 @@
+from collections.abc import Generator
+from contextlib import contextmanager
+
+import tests.network.libs.nodenetworkconfigurationpolicy as libnncp
 from libs.net import netattachdef
-from libs.net.vmspec import add_network_interface, add_volume_disk
+from libs.net.traffic_generator import Client, Server
+from libs.net.vmspec import IP_ADDRESS, add_network_interface, add_volume_disk, lookup_iface_status
 from libs.vm.affinity import new_pod_anti_affinity
 from libs.vm.factory import base_vmspec, fedora_vm
 from libs.vm.spec import CloudInitNoCloud, Interface, Metadata, Multus, Network
 from libs.vm.vm import BaseVirtualMachine, cloudinitdisk_storage
 from tests.network.libs import cloudinit
+from tests.network.libs.nodenetworkconfigurationpolicy import Resource
+from utilities.constants import OVS_BRIDGE
 
 NETWORK_NAME = "localnet-network"
+_IPERF_SERVER_PORT = 5201
+
+
+@contextmanager
+def start_server_vm(vm: BaseVirtualMachine) -> Generator[Server]:
+    with Server(vm=vm, port=_IPERF_SERVER_PORT) as server:
+        assert server.is_running()
+        yield server
+
+
+@contextmanager
+def start_client_vm(vms: tuple[BaseVirtualMachine, BaseVirtualMachine]) -> Generator[Client]:
+    vm_server, vm_client = vms
+    with Client(
+        vm=vm_client,
+        server_ip=lookup_iface_status(vm=vm_server, iface_name=NETWORK_NAME)[IP_ADDRESS],
+        server_port=_IPERF_SERVER_PORT,
+    ) as client:
+        assert client.is_running()
+        yield client
+
+
+def additional_ovs_bridge_interface(bridge_name: str, worker_port_name: str) -> libnncp.Interface:
+    return libnncp.Interface(
+        name=bridge_name,
+        type=OVS_BRIDGE,
+        ipv4=libnncp.IPv4(enabled=False),
+        ipv6=libnncp.IPv6(enabled=False),
+        state=Resource.Interface.State.UP,
+        bridge=libnncp.Bridge(
+            options=libnncp.BridgeOptions(libnncp.STP(enabled=False)),
+            port=[
+                libnncp.Port(
+                    name=worker_port_name,
+                )
+            ],
+        ),
+    )
 
 
 def localnet_vm(namespace: str, name: str, network: str, cidr: str) -> BaseVirtualMachine:
