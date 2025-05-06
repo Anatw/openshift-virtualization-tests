@@ -11,35 +11,40 @@ from libs.vm.spec import CloudInitNoCloud, Interface, Metadata, Multus, Network
 from libs.vm.vm import BaseVirtualMachine, cloudinitdisk_storage
 from tests.network.libs import cloudinit
 from tests.network.libs.nodenetworkconfigurationpolicy import Resource
-from utilities.constants import OVS_BRIDGE
 
-NETWORK_NAME = "localnet-network"
 _IPERF_SERVER_PORT = 5201
+NNCP_INTERFACE_TYPE_OVS_BRIDGE = "ovs-bridge"
 
 
 @contextmanager
-def start_server_vm(vm: BaseVirtualMachine) -> Generator[Server]:
-    with Server(vm=vm, port=_IPERF_SERVER_PORT) as server:
-        assert server.is_running()
-        yield server
+def running_localnet_vms(
+    vms: tuple[BaseVirtualMachine, BaseVirtualMachine],
+) -> Generator[tuple[BaseVirtualMachine, BaseVirtualMachine]]:
+    for vm in vms:
+        vm.start()
+    for vm in vms:
+        vm.wait_for_ready_status(status=True)
+        vm.vmi.wait_for_condition(condition=vm.Condition.Type.AGENT_CONNECTED, status=vm.Condition.Status.TRUE)
+    yield vms
 
 
-@contextmanager
-def start_client_vm(vms: tuple[BaseVirtualMachine, BaseVirtualMachine]) -> Generator[Client]:
+def create_traffic_server(vm: BaseVirtualMachine) -> Server:
+    return Server(vm=vm, port=_IPERF_SERVER_PORT)
+
+
+def create_traffic_client(vms: tuple[BaseVirtualMachine, BaseVirtualMachine], network_name: str) -> Client:
     vm_server, vm_client = vms
-    with Client(
+    return Client(
         vm=vm_client,
-        server_ip=lookup_iface_status(vm=vm_server, iface_name=NETWORK_NAME)[IP_ADDRESS],
+        server_ip=lookup_iface_status(vm=vm_server, iface_name=network_name)[IP_ADDRESS],
         server_port=_IPERF_SERVER_PORT,
-    ) as client:
-        assert client.is_running()
-        yield client
+    )
 
 
 def additional_ovs_bridge_interface(bridge_name: str, worker_port_name: str) -> libnncp.Interface:
     return libnncp.Interface(
         name=bridge_name,
-        type=OVS_BRIDGE,
+        type=NNCP_INTERFACE_TYPE_OVS_BRIDGE,
         ipv4=libnncp.IPv4(enabled=False),
         ipv6=libnncp.IPv6(enabled=False),
         state=Resource.Interface.State.UP,
@@ -54,7 +59,7 @@ def additional_ovs_bridge_interface(bridge_name: str, worker_port_name: str) -> 
     )
 
 
-def localnet_vm(namespace: str, name: str, network: str, cidr: str) -> BaseVirtualMachine:
+def localnet_vm(namespace: str, name: str, network: str, cidr: str, network_name: str) -> BaseVirtualMachine:
     """
     Create a Fedora-based Virtual Machine connected to a given localnet network with a static IP configuration.
 
@@ -82,8 +87,8 @@ def localnet_vm(namespace: str, name: str, network: str, cidr: str) -> BaseVirtu
 
     vmi_spec = add_network_interface(
         vmi_spec=vmi_spec,
-        network=Network(name=NETWORK_NAME, multus=Multus(networkName=network)),
-        interface=Interface(name=NETWORK_NAME, bridge={}),
+        network=Network(name=network_name, multus=Multus(networkName=network)),
+        interface=Interface(name=network_name, bridge={}),
     )
 
     netdata = cloudinit.NetworkData(ethernets={"eth0": cloudinit.EthernetDevice(addresses=[cidr])})
@@ -102,12 +107,14 @@ def localnet_vm(namespace: str, name: str, network: str, cidr: str) -> BaseVirtu
     return fedora_vm(namespace=namespace, name=name, spec=spec)
 
 
-def localnet_nad(namespace: str, name: str, vlan_id: int) -> netattachdef.NetworkAttachmentDefinition:
+def localnet_nad(
+    namespace: str, name: str, vlan_id: int, network_name: str
+) -> netattachdef.NetworkAttachmentDefinition:
     return netattachdef.NetworkAttachmentDefinition(
         namespace=namespace,
         name=name,
         config=netattachdef.NetConfig(
-            NETWORK_NAME,
+            network_name,
             [
                 netattachdef.CNIPluginOvnK8sConfig(
                     topology=netattachdef.CNIPluginOvnK8sConfig.Topology.LOCALNET.value,
