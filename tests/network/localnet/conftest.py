@@ -14,26 +14,15 @@ from tests.network.localnet.liblocalnet import (
     create_traffic_server,
     localnet_nad,
     localnet_vm,
-    running_localnet_vms,
+    run_vms,
 )
 from utilities.constants import (
     WORKER_NODE_LABEL_KEY,
 )
 from utilities.infra import create_ns
 
-BR_EX_NETWORK_NAME = "localnet-br-ex-network"
-ADDITIONAL_BRIDGE_NETWORK_NAME = "localnet-ovs-network"
-
-
-@pytest.fixture(scope="module")
-def vlan_id(vlan_index_number: Generator[int]) -> int:
-    return next(vlan_index_number)
-
-
-@pytest.fixture(scope="module")
-def ipv4_localnet_address_pool() -> Generator[str]:
-    net_prefix = "10.0.0"
-    return (f"{net_prefix}.{host_value}/24" for host_value in range(1, 254))
+LOCALNET_BR_EX_NETWORK = "localnet-br-ex-network"
+LOCALNET_ADDITIONAL_OVS_BRIDGE_NETWORK = "localnet-ovs-network"
 
 
 @pytest.fixture(scope="class")
@@ -41,7 +30,7 @@ def nncp_localnet() -> Generator[libnncp.NodeNetworkConfigurationPolicy]:
     desired_state = libnncp.DesiredState(
         ovn=libnncp.OVN([
             libnncp.BridgeMappings(
-                localnet=BR_EX_NETWORK_NAME,
+                localnet=LOCALNET_BR_EX_NETWORK,
                 bridge=libnncp.DEFAULT_OVN_EXTERNAL_BRIDGE,
                 state=libnncp.BridgeMappings.State.PRESENT.value,
             )
@@ -68,23 +57,40 @@ def namespace_localnet_2() -> Generator[Namespace]:
 
 
 @pytest.fixture(scope="class")
+def vlan_id(vlan_index_number: Generator[int]) -> int:
+    return next(vlan_index_number)
+
+
+@pytest.fixture(scope="class")
 def nad_localnet_1(
     namespace_localnet_1: Namespace, vlan_id: int
 ) -> Generator[netattachdef.NetworkAttachmentDefinition]:
     with localnet_nad(
-        namespace=namespace_localnet_1.name, name="test-localnet-nad1", vlan_id=vlan_id, network_name=BR_EX_NETWORK_NAME
+        namespace=namespace_localnet_1.name,
+        name="test-localnet-nad1",
+        vlan_id=vlan_id,
+        network_name=LOCALNET_BR_EX_NETWORK,
     ) as nad:
         yield nad
 
 
 @pytest.fixture(scope="class")
 def nad_localnet_2(
-    nncp_localnet: Generator[libnncp.NodeNetworkConfigurationPolicy], namespace_localnet_2: Namespace, vlan_id: int
+    namespace_localnet_2: Namespace, vlan_id: int
 ) -> Generator[netattachdef.NetworkAttachmentDefinition]:
     with localnet_nad(
-        namespace=namespace_localnet_2.name, name="test-localnet-nad2", vlan_id=vlan_id, network_name=BR_EX_NETWORK_NAME
+        namespace=namespace_localnet_2.name,
+        name="test-localnet-nad2",
+        vlan_id=vlan_id,
+        network_name=LOCALNET_BR_EX_NETWORK,
     ) as nad:
         yield nad
+
+
+@pytest.fixture(scope="class")
+def ipv4_localnet_address_pool() -> Generator[str]:
+    net_prefix = "10.0.0"
+    return (f"{net_prefix}.{host_value}/24" for host_value in range(1, 254))
 
 
 @pytest.fixture(scope="class")
@@ -96,7 +102,7 @@ def vm_localnet_1(
         name="test-vm1",
         network=nad_localnet_1.name,
         cidr=next(ipv4_localnet_address_pool),
-        network_name=BR_EX_NETWORK_NAME,
+        network_name=LOCALNET_BR_EX_NETWORK,
     ) as vm:
         yield vm
 
@@ -110,7 +116,7 @@ def vm_localnet_2(
         name="test-vm2",
         network=nad_localnet_2.name,
         cidr=next(ipv4_localnet_address_pool),
-        network_name=BR_EX_NETWORK_NAME,
+        network_name=LOCALNET_BR_EX_NETWORK,
     ) as vm:
         yield vm
 
@@ -119,9 +125,7 @@ def vm_localnet_2(
 def vms_localnet(
     vm_localnet_1: BaseVirtualMachine, vm_localnet_2: BaseVirtualMachine
 ) -> Generator[tuple[BaseVirtualMachine, BaseVirtualMachine]]:
-    vms = (vm_localnet_1, vm_localnet_2)
-    with running_localnet_vms(vms=vms) as running_vms:
-        yield running_vms
+    yield run_vms(vms=(vm_localnet_1, vm_localnet_2))
 
 
 @pytest.fixture()
@@ -134,7 +138,7 @@ def localnet_server(vms_localnet: tuple[BaseVirtualMachine, BaseVirtualMachine])
 
 @pytest.fixture()
 def localnet_client(vms_localnet: tuple[BaseVirtualMachine, BaseVirtualMachine]) -> Generator[Client]:
-    with create_traffic_client(vms=vms_localnet, network_name=BR_EX_NETWORK_NAME) as client:
+    with create_traffic_client(vms=vms_localnet, network_name=LOCALNET_BR_EX_NETWORK) as client:
         assert client.is_running()
         yield client
 
@@ -152,7 +156,7 @@ def nncp_localnet_on_secondary_node_nic(
         ],
         ovn=libnncp.OVN([
             libnncp.BridgeMappings(
-                localnet=ADDITIONAL_BRIDGE_NETWORK_NAME,
+                localnet=LOCALNET_ADDITIONAL_OVS_BRIDGE_NETWORK,
                 bridge=bridge_name,
                 state=libnncp.BridgeMappings.State.PRESENT.value,
             )
@@ -169,14 +173,14 @@ def nncp_localnet_on_secondary_node_nic(
 
 @pytest.fixture(scope="class")
 def nad_localnet_additional_ovs_bridge(
-    namespace: Namespace,
+    namespace_localnet_1: Namespace,
     vlan_id: int,
 ) -> Generator[netattachdef.NetworkAttachmentDefinition]:
     with localnet_nad(
-        namespace=namespace.name,
-        name=f"{ADDITIONAL_BRIDGE_NETWORK_NAME}-nad",
+        namespace=namespace_localnet_1.name,
+        name=f"{LOCALNET_ADDITIONAL_OVS_BRIDGE_NETWORK}-nad",
         vlan_id=vlan_id,
-        network_name=ADDITIONAL_BRIDGE_NETWORK_NAME,
+        network_name=LOCALNET_ADDITIONAL_OVS_BRIDGE_NETWORK,
     ) as nad:
         yield nad
 
@@ -191,7 +195,7 @@ def additional_ovs_bridge_localnet_vma(
         name="localnet-vma",
         network=nad_localnet_additional_ovs_bridge.name,
         cidr=next(ipv4_localnet_address_pool),
-        network_name=ADDITIONAL_BRIDGE_NETWORK_NAME,
+        network_name=LOCALNET_ADDITIONAL_OVS_BRIDGE_NETWORK,
     ) as vma:
         yield vma
 
@@ -206,7 +210,7 @@ def additional_ovs_bridge_localnet_vmb(
         name="localnet-vmb",
         network=nad_localnet_additional_ovs_bridge.name,
         cidr=next(ipv4_localnet_address_pool),
-        network_name=ADDITIONAL_BRIDGE_NETWORK_NAME,
+        network_name=LOCALNET_ADDITIONAL_OVS_BRIDGE_NETWORK,
     ) as vmb:
         yield vmb
 
@@ -215,9 +219,7 @@ def additional_ovs_bridge_localnet_vmb(
 def additional_ovs_bridge_localnet_vms(
     additional_ovs_bridge_localnet_vma: BaseVirtualMachine, additional_ovs_bridge_localnet_vmb: BaseVirtualMachine
 ) -> Generator[tuple[BaseVirtualMachine, BaseVirtualMachine]]:
-    vms = (additional_ovs_bridge_localnet_vma, additional_ovs_bridge_localnet_vmb)
-    with running_localnet_vms(vms=vms) as running_vms:
-        yield running_vms
+    yield run_vms(vms=(additional_ovs_bridge_localnet_vma, additional_ovs_bridge_localnet_vmb))
 
 
 @pytest.fixture()
@@ -235,7 +237,7 @@ def localnet_additional_ovs_bridge_client(
     additional_ovs_bridge_localnet_vms: tuple[BaseVirtualMachine, BaseVirtualMachine],
 ) -> Generator[Client]:
     with create_traffic_client(
-        vms=additional_ovs_bridge_localnet_vms, network_name=ADDITIONAL_BRIDGE_NETWORK_NAME
+        vms=additional_ovs_bridge_localnet_vms, network_name=LOCALNET_ADDITIONAL_OVS_BRIDGE_NETWORK
     ) as client:
         assert client.is_running()
         yield client

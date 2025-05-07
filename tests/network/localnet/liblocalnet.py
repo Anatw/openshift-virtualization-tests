@@ -1,6 +1,3 @@
-from collections.abc import Generator
-from contextlib import contextmanager
-
 import tests.network.libs.nodenetworkconfigurationpolicy as libnncp
 from libs.net import netattachdef
 from libs.net.traffic_generator import Client, Server
@@ -10,22 +7,20 @@ from libs.vm.factory import base_vmspec, fedora_vm
 from libs.vm.spec import CloudInitNoCloud, Interface, Metadata, Multus, Network
 from libs.vm.vm import BaseVirtualMachine, cloudinitdisk_storage
 from tests.network.libs import cloudinit
-from tests.network.libs.nodenetworkconfigurationpolicy import Resource
 
 _IPERF_SERVER_PORT = 5201
 NNCP_INTERFACE_TYPE_OVS_BRIDGE = "ovs-bridge"
 
 
-@contextmanager
-def running_localnet_vms(
+def run_vms(
     vms: tuple[BaseVirtualMachine, BaseVirtualMachine],
-) -> Generator[tuple[BaseVirtualMachine, BaseVirtualMachine]]:
+) -> tuple[BaseVirtualMachine, BaseVirtualMachine]:
     for vm in vms:
         vm.start()
     for vm in vms:
         vm.wait_for_ready_status(status=True)
-        vm.vmi.wait_for_condition(condition=vm.Condition.Type.AGENT_CONNECTED, status=vm.Condition.Status.TRUE)
-    yield vms
+        vm.wait_for_agent_connected()
+    return vms
 
 
 def create_traffic_server(vm: BaseVirtualMachine) -> Server:
@@ -47,7 +42,7 @@ def additional_ovs_bridge_interface(bridge_name: str, worker_port_name: str) -> 
         type=NNCP_INTERFACE_TYPE_OVS_BRIDGE,
         ipv4=libnncp.IPv4(enabled=False),
         ipv6=libnncp.IPv6(enabled=False),
-        state=Resource.Interface.State.UP,
+        state=libnncp.Resource.Interface.State.UP,
         bridge=libnncp.Bridge(
             options=libnncp.BridgeOptions(libnncp.STP(enabled=False)),
             port=[
