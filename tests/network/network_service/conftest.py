@@ -72,6 +72,7 @@ def virtctl_expose_service(
         namespace=running_vm_for_exposure.namespace,
         client=unprivileged_client,
     )
+    service.wait(timeout=10)
     yield service
     service.clean_up()
 
