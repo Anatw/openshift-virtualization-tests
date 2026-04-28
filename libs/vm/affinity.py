@@ -16,6 +16,15 @@ def new_label(key_prefix: str) -> tuple[str, str]:
 
 
 def new_pod_anti_affinity(label: tuple[str, str], namespaces: list[str] | None = None) -> Affinity:
+    """Create pod anti-affinity to schedule pods on different nodes.
+
+    Args:
+        label: Tuple of (key, value) to match pods for anti-affinity.
+        namespaces: Optional list of namespaces to search for matching pods.
+
+    Returns:
+        Affinity: Affinity object with podAntiAffinity configured for cross-namespace anti-affinity.
+    """
     (key, value) = label
     return Affinity(
         podAntiAffinity=PodAntiAffinity(
@@ -26,6 +35,7 @@ def new_pod_anti_affinity(label: tuple[str, str], namespaces: list[str] | None =
                     ),
                     topologyKey=f"{Resource.ApiGroup.KUBERNETES_IO}/hostname",
                     namespaces=namespaces,
+                    namespaceSelector={},
                 )
             ]
         )
